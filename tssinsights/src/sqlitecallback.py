@@ -1,5 +1,5 @@
 import sqlite3
-from tssinsights.src.policytree import PolicyTree
+from src.policytree import PolicyTree
 
 class SqliteCallback():
     """SQLite helper class"""
@@ -10,7 +10,7 @@ class SqliteCallback():
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS PolicyTrees (
             id INTEGER PRIMARY KEY,
-            structure TEXT,
+            policy TEXT,
             miniscript TEXT,
             anonymized_miniscript TEXT
         )
@@ -20,7 +20,7 @@ class SqliteCallback():
     def store(self, tree: PolicyTree) -> None:
         try:
             self.cursor.execute('''
-            INSERT OR IGNORE INTO PolicyTrees (structure, miniscript) VALUES (?, ?)
+            INSERT OR IGNORE INTO PolicyTrees (policy, miniscript) VALUES (?, ?)
             ''', (repr(tree), tree.miniscript))
             self.conn.commit()
         except sqlite3.Error as e:

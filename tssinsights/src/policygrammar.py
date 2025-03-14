@@ -1,94 +1,119 @@
-
 import subprocess
 import sqlite3
 import queue
-import os
-from bucketing import Bucketing
 import cProfile
-import time
 
 class PolicyGrammar():
-    def __init__(self, samples: int, depth: int) -> None:
-        self.binary_path = "./../miniscript/miniscript"
+    def __init__(self, id: int, samples: int, depth: int, name: str, miniscript_path: str) -> None:
+        self.id = id
         self.process = None 
         self.input_queue = queue.Queue()
         self.running = False
         
-        self.conn = sqlite3.connect("policy(3,3,3).db")
+        self.conn = sqlite3.connect(name)
         self.cursor = self.conn.cursor()
 
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS PolicyTrees (
             id INTEGER PRIMARY KEY,
-            structure TEXT,
+            policy TEXT,
             miniscript TEXT,
+            sipa_cost INT,
+            rust_miniscript TEXT,
+            rust_cost INT,
             anonymized_miniscript TEXT
         )
         ''')
         self.conn.commit()
-        self.grammarinator_generate = f"unbuffer grammarinator-generate ThresholdPolicyGenerator.ThresholdPolicyGenerator -n {samples} --stdout -d {depth} | ../miniscript/miniscript"
-
-#    def generatePolicyTrees(self, depth: int, width: int, compile_callback: BinaryFeeder, store_callback: SqliteCallback):
-    def generatePolicyTrees(self):
-        # TODO: Generate the ANTLR file based on the input parameters
-        # Placeholder: use the prewritten file
-        prepare_env = "mkdir -p grammarinator_output"
-        grammarinator_process = "grammarinator-process adjusted.g4 -o ./grammarinator_output --no-action"
-        try:
-            subprocess.run(prepare_env, shell=True, stderr=subprocess.STDOUT)
-            
-            # Set PYTHONPATH
-            os.environ["PYTHONPATH"] = os.path.join(os.getcwd(), "grammarinator_output")
-            result = subprocess.check_output("echo $PYTHONPATH", shell=True, stderr=subprocess.STDOUT)
-            print(result.decode('utf-8'))
-            result = subprocess.check_output(grammarinator_process, shell=True, stderr=subprocess.STDOUT)
-            print(result.decode('utf-8'))
-            print("Environment prepared successufully")
-        except subprocess.CalledProcessError as e:
-            print(f"Error: {e.output.decode('utf-8')}")
+        self.grammarinator_generate = f"unbuffer grammarinator-generate ThresholdPolicyGenerator.ThresholdPolicyGenerator -n {samples} --stdout -d {depth} | {miniscript_path}"
+        self.counter = 0
                        
-        
-    def populateDB(self):
-        print("Compiler process has started")
-        #self.cursor.execute("PRAGMA synchronous = OFF;")
-        #self.cursor.execute("PRAGMA journal_mode = MEMORY;")
-        #self.cursor.execute("BEGIN TRANSACTION;")
+    def generate_policy_file(self, output_filename: str):
+        """
+        Runs the policy generation command and writes output to a file.
+        """
+        print("Starting policy generation...")
+        with open(output_filename, 'w') as outfile:
+            # Run the generation command and write its output to the file.
+            subprocess.run(self.grammarinator_generate, shell=True, stdout=outfile, stderr=subprocess.STDOUT)
+        print(f"Policy generation completed. Output saved to {output_filename}")
+
+    def populate_db(self):
+        self.cursor.execute("PRAGMA synchronous = OFF;")
         proc = subprocess.Popen(
             (self.grammarinator_generate),
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             shell=True
         )
-
+        
+        batch_size = 500
+        batch_counter = 0
+        self.cursor.execute("BEGIN TRANSACTION;")
         for line in proc.stdout: # type: ignore
             if line.startswith("X"):
-                policy = line.split()[-1]
-                miniscript = line.split()[-2]
+                line_arr = line.split()
+                policy = line_arr[-1]
+                miniscript = line_arr[-2]
+                sipa_cost = int(line_arr[2])
             else:
                 policy = line.split()[-1][11:] # cut miniscript=
                 miniscript = ""
+                sipa_cost = 0
             
+            batch_counter += 1
+            self.counter += 1
             self.cursor.execute('''
-            INSERT OR IGNORE INTO PolicyTrees (structure, miniscript) VALUES (?, ?)
-            ''', (policy, miniscript))
+            INSERT OR IGNORE INTO PolicyTrees (policy, miniscript, sipa_cost) VALUES (?, ?, ?)
+            ''', (policy, miniscript, sipa_cost))
+
+            if batch_counter % batch_size == 0:
+                self.conn.commit()
+                self.cursor.execute("BEGIN TRANSACTION;")
+                print(f"Worker {self.id}: Processed a batch of {batch_counter} policies")
+
+        self.conn.commit()  # Final commit for any remaining rows.
+        proc.stdout.close() # type: ignore
+        print(f"Worker {self.id}: Processed a total of {self.counter} policies")
+ 
+    def populate_db_from_file(self, input_filename: str, batch_size: int = 1000):
+        print("Starting DB population from file...")
+        count = 0
+        batch = []
+        
+        with open(input_filename, 'r') as infile:
+            for line in infile:
+                # Process each line to extract policy, miniscript, and cost.
+                if line.startswith("X"):
+                    line_arr = line.split()
+                    policy = line_arr[-1]
+                    miniscript = line_arr[-2]
+                    sipa_cost = int(line_arr[2])
+                else:
+                    policy = line.split()[-1][11:]  # remove prefix "miniscript=" if present.
+                    miniscript = ""
+                    sipa_cost = 0
+                
+                batch.append((policy, miniscript, sipa_cost))
+                count += 1
+                
+                # When batch is full, insert into DB
+                if count % batch_size == 0:
+                    self.cursor.executemany('''
+                        INSERT OR IGNORE INTO PolicyTrees (policy, miniscript, sipa_cost)
+                        VALUES (?, ?, ?)
+                    ''', batch)
+                    self.conn.commit()
+                    batch = []
+                    print(f"Inserted {count} records so far...")
+        
+        # Insert any remaining records
+        if batch:
+            self.cursor.executemany('''
+                INSERT OR IGNORE INTO PolicyTrees (policy, miniscript, sipa_cost)
+                VALUES (?, ?, ?)
+            ''', batch)
             self.conn.commit()
 
-        proc.stdout.close() # type: ignore
-        #proc.wait()
-        #self.conn.commit()
- #       self.conn.close()
-
-        
-if __name__ == "__main__":
-    grammar = PolicyGrammar(300000, 15)
-    #grammar.generatePolicyTrees()
-    start_time = time.time()
-    grammar.populateDB()
-    print(f"DB Population took {time.time() - start_time}")
-    #grammar.populateDB()
-    bucketing_worker = Bucketing()
-    buckets = bucketing_worker.analyze(grammar)
-    bucketing_worker.export_to_csv(buckets, f"../exports/new_report(3.3.3).csv")
-    grammar.conn.close()
-    
+        print(f"DB population complete. Processed a total of {count} policies.")
