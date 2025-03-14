@@ -119,27 +119,27 @@ if __name__ == "__main__":
     grammar_file = "base.g4"
     miniscript_file = "../miniscript/miniscript"
     
-    #prepareEnv(grammar_file)
-    # Directory where each worker's DB file will be stored.
+    prepareEnv(grammar_file)
+
     output_dir = "./worker_outputs"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    #generate_trees_parallel(sample_count, num_iterations, num_workers, depth, output_dir)
+    generate_trees_parallel(sample_count, num_iterations, num_workers, depth, output_dir)
     
-    master_database_path = "master_policy(x,5,19).db"
+    #master_database_path = "master_policy(x,5,19).db"
     #merge_worker_databases(master_database_path, output_dir)
     
     
-    sqlite_callback = SqliteCallback(master_database_path)
+    #sqlite_callback = SqliteCallback(master_database_path)
 
-    start = time.time()
-    bucketing_worker = Bucketing()
-    buckets = bucketing_worker.analyze(sqlite_callback)
-    bucketing_worker.export_to_csv(buckets, f"report(x,5,19).csv")
-    end = time.time()
+    #start = time.time()
+    #bucketing_worker = Bucketing()
+    #buckets = bucketing_worker.analyze(sqlite_callback)
+    #bucketing_worker.export_to_csv(buckets, f"report(x,5,19).csv")
+    #end = time.time()
 
-    sqlite_callback.close()
-    print(f"Time elapsed analyzing: {end-start}")
+    #sqlite_callback.close()
+    #print(f"Time elapsed analyzing: {end-start}")
 
     
