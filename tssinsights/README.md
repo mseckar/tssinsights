@@ -9,7 +9,14 @@ Process the grammar and generate the outputs (make sure the output folder is in 
 mkdir -p grammarinator_output; export PYTHONPATH=$(pwd)/grammarinator_output
 grammarinator-process adjusted.g4 -o ./grammarinator_output --no-action
 unbuffer grammarinator-generate ThresholdPolicyGenerator.ThresholdPolicyGenerator -n 10000 --stdout -d 10 > output.txt
+
+unbuffer grammarinator-generate ThresholdPolicyGenerator.ThresholdPolicyGenerator -n 1000 --stdout -d 19 | valgrind --leak-check=yes ../miniscript/miniscript
+unbuffer grammarinator-generate ThresholdPolicyGenerator.ThresholdPolicyGenerator -n 1000 --stdout -d 19 | valgrind --leak-check=full  --show-leak-kinds=all --track-origins=yes --verbose --log-file=valgrind-out1.txt ../miniscript/miniscript
+
+valgrind --leak-check=full  --show-leak-kinds=all --track-origins=yes --verbose --log-file=valgrind-out1.txt
 ```
+
+## Notes from generating the simple dataset
 10k in 6 sec
 100k in 6 mins
 200k in 14 mins
@@ -50,3 +57,9 @@ SELECT anonymized_miniscript, COUNT(*) as count, GROUP_CONCAT(policy), GROUP_CON
         HAVING count >= 1
         ORDER BY count DESC
         LIMIT 30
+
+## Notes from generating the timelock dataset
+
+New degenerate case: thresh(1, timelock(), pk()*) - Solved with node_no_timelock
+
+compiled 6.5k policies in 1063s = 5.6 p/s
